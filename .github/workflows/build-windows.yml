@@ -1,0 +1,378 @@
+name: Build OpenMU Windows Portable
+
+on:
+
+  workflow_dispatch:
+
+
+permissions:
+
+  contents: read
+
+
+jobs:
+
+  build:
+
+    runs-on: windows-latest
+
+
+    steps:
+
+
+      # ==========================================
+      # Checkout Source
+      # ==========================================
+
+      - name: Checkout OpenMU
+
+        uses: actions/checkout@v4
+
+
+
+      # ==========================================
+      # Setup .NET 10
+      # ==========================================
+
+      - name: Setup .NET 10
+
+        uses: actions/setup-dotnet@v4
+
+        with:
+
+          dotnet-version: '10.0.x'
+
+
+
+      # ==========================================
+      # Setup Node.js
+      # OpenMU documentation requires NodeJS
+      # ==========================================
+
+      - name: Setup Node.js
+
+        uses: actions/setup-node@v4
+
+        with:
+
+          node-version: '20'
+
+
+
+      # ==========================================
+      # Show Environment
+      # ==========================================
+
+      - name: Show Environment
+
+        shell: pwsh
+
+        run: |
+
+          Write-Host "========== .NET =========="
+
+          dotnet --info
+
+          Write-Host "========== Node =========="
+
+          node --version
+
+          npm --version
+
+
+
+      # ==========================================
+      # Restore NuGet Packages
+      # ==========================================
+
+      - name: Restore NuGet
+
+        shell: pwsh
+
+        run: |
+
+          dotnet restore src/MUnique.OpenMU.sln
+
+
+
+      # ==========================================
+      # Build Release
+      # ==========================================
+
+      - name: Build Release
+
+        shell: pwsh
+
+        run: |
+
+          dotnet build src/MUnique.OpenMU.sln `
+            --configuration Release `
+            --no-restore
+
+
+
+      # ==========================================
+      # Publish Windows x64
+      #
+      # self-contained:
+      # User does NOT need .NET installed
+      # ==========================================
+
+      - name: Publish OpenMU
+
+        shell: pwsh
+
+        run: |
+
+          dotnet publish `
+            src/Startup/MUnique.OpenMU.Startup.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output publish/OpenMU `
+            --no-build `
+            /p:PublishTrimmed=false `
+            /p:PublishSingleFile=false
+
+
+
+      # ==========================================
+      # Create Runtime Directories
+      # ==========================================
+
+      - name: Create Runtime Directories
+
+        shell: pwsh
+
+        run: |
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path publish/OpenMU/logs
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path publish/OpenMU/Config
+
+
+
+      # ==========================================
+      # Copy Database Connection Configuration
+      # ==========================================
+
+      - name: Copy Connection Settings
+
+        shell: pwsh
+
+        run: |
+
+          $source = "src/Persistence/EntityFramework/ConnectionSettings.xml"
+
+          if (Test-Path $source)
+          {
+              Copy-Item `
+                $source `
+                "publish/OpenMU/ConnectionSettings.xml" `
+                -Force
+
+              Write-Host "ConnectionSettings.xml copied."
+          }
+          else
+          {
+              Write-Warning "ConnectionSettings.xml not found."
+          }
+
+
+
+      # ==========================================
+      # Create Start Script
+      # ==========================================
+
+      - name: Create StartServer.bat
+
+        shell: pwsh
+
+        run: |
+
+          @'
+          @echo off
+
+          title OpenMU Server
+
+          cd /d "%~dp0"
+
+          echo.
+          echo ============================================
+          echo             OpenMU Server
+          echo ============================================
+          echo.
+
+          echo Starting OpenMU...
+          echo.
+
+          MUnique.OpenMU.Startup.exe -autostart
+
+          pause
+          '@ | Out-File `
+            "publish/OpenMU/StartServer.bat" `
+            -Encoding ascii
+
+
+
+      # ==========================================
+      # Create Reinitialize Database Script
+      # ==========================================
+
+      - name: Create ReinitDatabase.bat
+
+        shell: pwsh
+
+        run: |
+
+          @'
+          @echo off
+
+          title OpenMU Database Reinitialize
+
+          cd /d "%~dp0"
+
+          echo.
+          echo ============================================
+          echo      OpenMU Database Reinitialization
+          echo ============================================
+          echo.
+          echo WARNING!
+          echo This will recreate the OpenMU database.
+          echo.
+
+          pause
+
+          MUnique.OpenMU.Startup.exe -reinit
+
+          pause
+          '@ | Out-File `
+            "publish/OpenMU/ReinitDatabase.bat" `
+            -Encoding ascii
+
+
+
+      # ==========================================
+      # Create README
+      # ==========================================
+
+      - name: Create README
+
+        shell: pwsh
+
+        run: |
+
+          @'
+          ====================================================
+
+                       OpenMU Windows Server
+
+          ====================================================
+
+
+          REQUIREMENTS
+          ----------------------------------------------------
+
+          1. Windows 10 / Windows 11 x64
+
+          2. PostgreSQL installed and running
+
+          3. Configure:
+
+             ConnectionSettings.xml
+
+
+          START SERVER
+          ----------------------------------------------------
+
+          Double click:
+
+             StartServer.bat
+
+
+          DATABASE INITIALIZATION
+          ----------------------------------------------------
+
+          OpenMU automatically creates and initializes
+          the database on first startup.
+
+          To force a complete database recreation:
+
+             ReinitDatabase.bat
+
+
+          IMPORTANT
+          ----------------------------------------------------
+
+          This package is self-contained.
+
+          .NET Runtime installation is NOT required.
+
+
+          GENERATED BY
+          ----------------------------------------------------
+
+          GitHub Actions
+
+          ====================================================
+          '@ | Out-File `
+            "publish/OpenMU/README.txt" `
+            -Encoding UTF8
+
+
+
+      # ==========================================
+      # Show Published Files
+      # ==========================================
+
+      - name: Show Publish Result
+
+        shell: pwsh
+
+        run: |
+
+          Get-ChildItem `
+            publish/OpenMU `
+            -Recurse `
+            | Select-Object FullName
+
+
+
+      # ==========================================
+      # Create ZIP Package
+      # ==========================================
+
+      - name: Create ZIP
+
+        shell: pwsh
+
+        run: |
+
+          Compress-Archive `
+            -Path publish/OpenMU/* `
+            -DestinationPath OpenMU-Windows-x64-Portable.zip `
+            -Force
+
+
+
+      # ==========================================
+      # Upload Artifact
+      # ==========================================
+
+      - name: Upload Artifact
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: OpenMU-Windows-x64-Portable
+
+          path: OpenMU-Windows-x64-Portable.zip
+
+          retention-days: 30
