@@ -19,21 +19,24 @@ jobs:
           dotnet-version: '10.0.x'
 
 
+      # Restore 时为 win-x64 准备依赖
       - name: Restore
         shell: pwsh
         run: |
-          dotnet restore src/MUnique.OpenMU.sln --runtime win-x64
+          dotnet restore src/MUnique.OpenMU.sln
 
 
+      # Solution Build 不指定 Runtime
       - name: Build
         shell: pwsh
         run: |
           dotnet build src/MUnique.OpenMU.sln `
             --configuration Release `
-            --runtime win-x64 `
             --no-restore
 
 
+      # Publish 单独指定 Windows Runtime
+      # 不使用 --no-build，让 publish 自己处理 RID
       - name: Publish OpenMU
         shell: pwsh
         run: |
@@ -43,7 +46,6 @@ jobs:
             --runtime win-x64 `
             --self-contained true `
             --output publish/OpenMU `
-            --no-build `
             /p:PublishTrimmed=false `
             /p:PublishSingleFile=false
 
